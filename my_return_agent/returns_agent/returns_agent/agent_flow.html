@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Returns Agent Flow</title>
+<style>
+  :root {
+    --ink:#1d2433; --muted:#566074; --line:#e1e5ee; --soft:#f5f6fa; --bg:#ffffff;
+    --cust:#0f766e; --staff:#be123c; --agent:#f26b1d; --llm:#6d28d9; --tool:#2563eb; --db:#15803d; --kb:#b45309;
+    --s: clamp(12px, 1.05vw, 22px);            /* one base size: everything scales with the screen */
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--ink);
+    font-family:"Avenir Next", -apple-system, "Segoe UI", sans-serif; font-size:var(--s); }
+  body { display:grid; grid-template-rows:auto auto minmax(0, 40fr) minmax(0, 46fr); height:100vh; overflow:hidden; }
+
+  header { display:flex; align-items:center; gap:1.2em; padding:.8em 1.6em .3em; }
+  header h1 { font-size:1.55em; margin:0; font-weight:800; white-space:nowrap; }
+  .controls { margin-left:auto; display:flex; gap:.5em; align-items:center; }
+  button { font:inherit; font-weight:700; border:2px solid var(--line); background:#fff; color:var(--ink);
+    border-radius:.6em; padding:.4em .9em; cursor:pointer; }
+  button.primary { background:var(--agent); border-color:var(--agent); color:#fff; }
+  button:disabled { opacity:.35; cursor:default; }
+  .counter { color:var(--muted); min-width:6.5em; text-align:right; font-weight:600; }
+
+  .picker { display:flex; gap:.5em; padding:.2em 1.6em .5em; flex-wrap:wrap; align-items:center; }
+  .picker button { border-radius:2em; padding:.35em 1em; }
+  .picker button.on { background:var(--ink); border-color:var(--ink); color:#fff; }
+  .picker .who { margin-left:auto; color:var(--muted); font-weight:600; }
+
+  /* ---------- the lanes, left to right */
+  .stage { position:relative; display:grid; grid-template-columns:repeat(5, 1fr); gap:1.4em; padding:3.4em 1.6em .6em; min-height:0; }
+  .lane { display:flex; flex-direction:column; gap:.8em; min-height:0; }
+  .box { flex:1; min-height:0; position:relative; border:.2em solid var(--c); border-radius:1em; background:#fff;
+    padding:.6em; text-align:center; display:flex; flex-direction:column; justify-content:center; align-items:center;
+    transition:box-shadow .25s, transform .25s, opacity .25s; }
+  .box .icon { font-size:2.4em; line-height:1; }
+  .box .name { font-size:1.45em; font-weight:800; color:var(--c); margin-top:.15em; }
+  .box .what { font-size:.85em; color:var(--muted); margin-top:.2em; line-height:1.3; }
+  .box.small .icon { font-size:1.7em; } .box.small .name { font-size:1.15em; }
+  .box.active { box-shadow:0 0 0 .4em color-mix(in srgb, var(--c) 25%, transparent); transform:scale(1.04); }
+  .box.dim { opacity:.3; }
+  .tag { margin-top:.35em; font-size:.85em; font-weight:800; padding:.15em .6em; border-radius:1em;
+    background:color-mix(in srgb, var(--c) 13%, #fff); color:var(--c); }
+
+  .packet { position:absolute; z-index:5; max-width:17em; padding:.45em .8em; border-radius:.7em; color:#fff;
+    font-size:.95em; font-weight:800; line-height:1.25; box-shadow:0 .4em 1em rgba(0,0,0,.2); pointer-events:none; opacity:0; }
+  .think { position:absolute; z-index:6; left:50%; top:-.6em; transform:translate(-50%, -100%); width:24em; max-width:30vw;
+    background:#f3edff; border:.15em dashed var(--llm); color:#3b1a7a; border-radius:.9em; padding:.6em .8em;
+    font-size:.95em; line-height:1.35; text-align:left; opacity:0; transition:opacity .3s; pointer-events:none; }
+  .think.show { opacity:1; }
+  .thought { margin:.6em 0 0; font-size:1.3em; line-height:1.4; color:#4c1d95; background:#f1ebff; border:.12em dashed var(--llm);
+    border-radius:.8em; padding:.6em .8em; font-style:italic; overflow:auto; }
+
+  /* ---------- bottom: this step + the memory */
+  .bottom { display:grid; grid-template-columns: 42fr 58fr; gap:1.2em; padding:.4em 1.6em 1em; min-height:0; }
+  .card { background:var(--soft); border-radius:1em; padding:.9em 1.1em; min-height:0; display:flex; flex-direction:column; }
+  .step-head { display:flex; gap:.7em; align-items:center; }
+  .num { flex:none; width:2.3em; height:2.3em; border-radius:50%; background:var(--agent); color:#fff;
+    font-weight:800; font-size:1.1em; display:flex; align-items:center; justify-content:center; }
+  .step-head h2 { margin:0; font-size:1.35em; line-height:1.2; }
+  .step-text { margin:.5em 0 0; font-size:1.05em; color:var(--muted); line-height:1.4; }
+  pre { font-family:"SF Mono", Menlo, Consolas, monospace; font-size:.82em; background:#fff; border:1px solid var(--line);
+    border-radius:.6em; padding:.5em .7em; white-space:pre-wrap; margin:.6em 0 0; overflow:auto; min-height:0; flex:1 1 auto; }
+
+  .mem-head { display:flex; align-items:baseline; gap:.6em; }
+  .mem-head h2 { margin:0; font-size:1.2em; }
+  .mem-head .sent { margin-left:auto; font-weight:800; color:var(--llm); opacity:0; transition:opacity .3s; }
+  .card.sending { box-shadow:0 0 0 .25em var(--llm); }
+  .card.sending .sent { opacity:1; }
+  .memory { margin-top:.5em; overflow:auto; min-height:0; flex:1; display:flex; flex-direction:column; gap:.35em; padding-right:.3em; }
+  .msg { background:#fff; border-left:.3em solid var(--c); border-radius:.5em; padding:.35em .6em; font-size:.92em; line-height:1.3; }
+  .msg .who { font-weight:800; color:var(--c); margin-right:.3em; }
+  .msg .body { white-space:pre-wrap; }
+  .msg.clip .body { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .msg.new { animation:pop .9s ease-out; }
+  .msg.pinned { background:#ece7fb; }
+  @keyframes pop { from { background:#fff3c4; } to { background:#fff; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>How a message flows through the Returns Agent</h1>
+  <div class="controls">
+    <button id="back">◀ Back</button>
+    <button id="play" class="primary">▶ Play</button>
+    <button id="next">Next ▶</button>
+    <button id="restart">↺ Restart</button>
+    <span class="counter" id="counter"></span>
+  </div>
+</header>
+
+<div class="picker" id="picker"><span class="who" id="who"></span></div>
+
+<div class="stage" id="stage">
+  <div class="lane">
+    <div class="box" id="customer" style="--c:var(--cust)">
+      <div class="icon">🧑</div><div class="name">Customer</div>
+      <div class="what" id="custwhat">types in the chat</div>
+    </div>
+    <div class="box small" id="staff" style="--c:var(--staff); flex:.55">
+      <div class="icon">🧑‍💼</div><div class="name">Staff</div>
+    </div>
+  </div>
+  <div class="lane">
+    <div class="box" id="agent" style="--c:var(--agent)">
+      <div class="icon">🤖</div><div class="name">Agent</div>
+      <div class="what">the loop: calls the LLM,<br>runs the tools</div>
+      <div class="tag" id="memtag">Memory: 0</div>
+    </div>
+  </div>
+  <div class="lane">
+    <div class="box" id="llm" style="--c:var(--llm)">
+      <div class="think" id="think"></div>
+      <div class="icon">🧠</div><div class="name">LLM</div>
+      <div class="what">decides what to do<br>never touches the data</div>
+      <div class="tag" id="llmtag">LLM calls: 0</div>
+    </div>
+  </div>
+  <div class="lane">
+    <div class="box" id="tools" style="--c:var(--tool)">
+      <div class="icon">🔧</div><div class="name">Tools</div>
+      <div class="what">get_orders · search_knowledge<br>book_return · book_exchange</div>
+      <div class="tag">guardrails in code</div>
+    </div>
+  </div>
+  <div class="lane">
+    <div class="box" id="db" style="--c:var(--db)">
+      <div class="icon">🗄️</div><div class="name">Database</div>
+      <div class="what">SQLite</div>
+    </div>
+    <div class="box" id="kb" style="--c:var(--kb)">
+      <div class="icon">📚</div><div class="name">Knowledge</div>
+      <div class="what">Qdrant: hybrid search</div>
+    </div>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="card">
+    <div class="step-head"><div class="num" id="num">0</div><h2 id="title">Pick a scenario, then press ▶ Play</h2></div>
+    <div class="thought" id="thought" hidden></div>
+    <p class="step-text" id="text">Watch every hop: who sends what to whom, and what comes back.</p>
+    <pre id="detail" hidden></pre>
+  </div>
+  <div class="card" id="memcard">
+    <div class="mem-head"><h2>💬 Memory: the conversation the LLM sees</h2><span class="sent">📤 all of this is sent to the LLM</span></div>
+    <div class="memory" id="memory"></div>
+  </div>
+</div>
+
+<script>
+const FLOWS = {"simple": {"customer": "C-101", "title": "Simple return", "events": [{"type": "user", "text": "I want to return the kurta I got last week"}, {"type": "think", "text": "We need to handle return request. Need to identify order. Customer says \"kurta I got last week\". Need to fetch orders. Use get_orders."}, {"type": "call", "name": "get_orders", "args": {}}, {"type": "result", "name": "get_orders", "text": "[{\"order_id\": \"ORD-5001\", \"customer_id\": \"C-101\", \"item\": \"Cotton Kurta\", \"category\": \"clothing\", \"size\": \"M\", \"price\": 1299, \"delivered_on\": \"2026-11-09\", \"return_type\": null, \"return_status\": null}, {\"order_id\": \"ORD-5002\", \"customer_id\": \"C-101\", \"item\": \"Sequin Party Dress\", \"category\": \"party_wear\", \"size\": \"S\", \"price\": 3499, \"delivered_on\": \"2026-11-06\", \"return_type\": null, \"return_status\": null}]", "short": "ORD-5001  Cotton Kurta  · clothing · Rs 1299 · delivered 2026-11-09\nORD-5002  Sequin Party Dress  · party_wear · Rs 3499 · delivered 2026-11-06"}, {"type": "think", "text": "User wants to return the kurta received last week. That's order ORD-5001, delivered 2026-11-09 (which is 6 days ago). Need to check handbook rule for returning clothing item (kurta). Use search_knowledge."}, {"type": "call", "name": "search_knowledge", "args": {"query": "return policy clothing kurta", "source": "handbook"}}, {"type": "result", "name": "search_knowledge", "text": "8. Returns Policy\nDresses, suits and party wear can be returned within 7 days of delivery. All other clothing and footwear can be returned within 15 days of delivery. Home and kitchen products can be returned within 10 days of delivery if they are unused and in their original packaging. Innerwear, swimwear, cosmetics, perfumes and personalised items cannot be returned for hygiene reasons. Items must be unused and in the same condition in which they were delivered. Dresses and suits must be returned with all original tags attached. Footwear must be returned in the original shoebox. To start a return, go to My Orders, select the item and tap Return. A pickup is scheduled within 2 working days. Please keep the item packed and ready with the order ID written on a slip.\n\n9. Size Exchange\nFor clothing and footwear, you can request one free size exchange within the return window. The new size is delivered when the original item is picked up. Size exchange is subject to stock availability. If the requested size is out of stock, a refund is processed instead.\n\n24. Frequently Asked Questions\nCan I return a dress after 7 days? No. Dresses, suits and party wear can only be returned within 7 days of delivery.\nCan I change the payment method after placing an order? No. Please cancel the order before it is shipped and place a new one.\nDo I pay a fee for returns? No. Returns and pickups are free on all eligible items.\nCan I get an invoice for my order? Yes. A downloadable GST invoice is available in My Orders after delivery.\nWhat if my refund is delayed? If you have not received your refund within the timelines in Section 11, contact customer care with your order ID.", "short": "8. Returns Policy\nDresses, suits and party wear can be returned within 7 days of delivery. All other clothing and footwear can be returned within 15 days of delivery. Home and kitchen products can be returned within 10 days of delivery if they are unused and i…\n(+ 2 more passages)"}, {"type": "think", "text": "The user wants to return the kurta they got last week. We have order ORD-5001 delivered on 2026-11-09. Today is 2026-11-15, so 6 days after delivery. Return policy for clothing (non-party wear) is within 15 days, must be unused and same condition. Assuming they meet that, we can book a return.\n\nWe need to check if any other condition like must be unused. Not mentioned by user, but we assume they want to return. We can proceed to book return.\n\nUse book_return tool."}, {"type": "call", "name": "book_return", "args": {"order_id": "ORD-5001"}}, {"type": "result", "name": "book_return", "text": "Return booked for Cotton Kurta. Pickup within 2 working days. Refund of Rs 1299 after the quality check.", "short": "Return booked for Cotton Kurta. Pickup within 2 working days. Refund of Rs 1299 after the quality check."}, {"type": "answer", "text": "Your return for the Cotton Kurta (order ORD‑5001) is booked. Pickup will be scheduled within 2 working days and the refund will be processed after the item is checked."}]}, "kurta": {"customer": "C-104", "title": "Asks which kurta", "events": [{"type": "user", "text": "I want to return kurta"}, {"type": "think", "text": "We need to handle a request to return a kurta. Need to check customer's orders, find the kurta order, verify return eligibility per handbook. Steps:\n\n1. Get orders for the customer. Use get_orders.\n\n"}, {"type": "call", "name": "get_orders", "args": {}}, {"type": "result", "name": "get_orders", "text": "[{\"order_id\": \"ORD-5006\", \"customer_id\": \"C-104\", \"item\": \"Cotton Kurta\", \"category\": \"clothing\", \"size\": \"L\", \"price\": 1299, \"delivered_on\": \"2026-11-12\", \"return_type\": null, \"return_status\": null}, {\"order_id\": \"ORD-5007\", \"customer_id\": \"C-104\", \"item\": \"Linen Kurta\", \"category\": \"clothing\", \"size\": \"L\", \"price\": 1899, \"delivered_on\": \"2026-11-07\", \"return_type\": null, \"return_status\": null}, {\"order_id\": \"ORD-5008\", \"customer_id\": \"C-104\", \"item\": \"Slim Fit Jeans\", \"category\": \"clothing\", \"size\": \"34\", \"price\": 2199, \"delivered_on\": \"2026-11-03\", \"return_type\": null, \"return_status\": null}, {\"order_id\": \"ORD-5009\", \"customer_id\": \"C-104\", \"item\": \"Steel Pressure Cooker 5L\", \"category\": \"home\", \"size\": null, \"price\": 2450, \"delivered_on\": \"2026-11-13\", \"return_type\": null, \"return_status\": null}]", "short": "ORD-5006  Cotton Kurta  · clothing · Rs 1299 · delivered 2026-11-12\nORD-5007  Linen Kurta  · clothing · Rs 1899 · delivered 2026-11-07\nORD-5008  Slim Fit Jeans  · clothing · Rs 2199 · delivered 2026-11-03\nORD-5009  Steel Pressure Cooker 5L  · home · Rs 2450 · delivered 2026-11-13"}, {"type": "think", "text": "User says \"I want to return kurta\". There are two kurta orders: ORD-5006 (Cotton Kurta, delivered 2026-11-12) and ORD-5007 (Linen Kurta, delivered 2026-11-07). Need to ask which one."}, {"type": "answer", "text": "Which kurta would you like to return – the Cotton Kurta (order ORD‑5006) or the Linen Kurta (order ORD‑5007)?"}, {"type": "user", "text": "cotton"}, {"type": "think", "text": "We need to process return for Cotton Kurta, order ORD-5006. Need to check handbook rule for return of clothing items. Use search_knowledge."}, {"type": "call", "name": "search_knowledge", "args": {"query": "return policy clothing kurta unused within days", "source": "handbook"}}, {"type": "result", "name": "search_knowledge", "text": "8. Returns Policy\nDresses, suits and party wear can be returned within 7 days of delivery. All other clothing and footwear can be returned within 15 days of delivery. Home and kitchen products can be returned within 10 days of delivery if they are unused and in their original packaging. Innerwear, swimwear, cosmetics, perfumes and personalised items cannot be returned for hygiene reasons. Items must be unused and in the same condition in which they were delivered. Dresses and suits must be returned with all original tags attached. Footwear must be returned in the original shoebox. To start a return, go to My Orders, select the item and tap Return. A pickup is scheduled within 2 working days. Please keep the item packed and ready with the order ID written on a slip.\n\n24. Frequently Asked Questions\nCan I return a dress after 7 days? No. Dresses, suits and party wear can only be returned within 7 days of delivery.\nCan I change the payment method after placing an order? No. Please cancel the order before it is shipped and place a new one.\nDo I pay a fee for returns? No. Returns and pickups are free on all eligible items.\nCan I get an invoice for my order? Yes. A downloadable GST invoice is available in My Orders after delivery.\nWhat if my refund is delayed? If you have not received your refund within the timelines in Section 11, contact customer care with your order ID.\n\n13. Electronics Policy\nElectronics cannot be returned for a refund. Damaged or defective electronics are replaced within 10 days of delivery after a technician visit or online verification. All electronics carry a 1 year manufacturer warranty unless stated otherwise on the product page. For warranty claims after 10 days, contact the brand service centre listed on the product page. ShopEasy Care, our extended warranty plan, adds one more year of protection and can be bought within 30 days of delivery.", "short": "8. Returns Policy\nDresses, suits and party wear can be returned within 7 days of delivery. All other clothing and footwear can be returned within 15 days of delivery. Home and kitchen products can be returned within 10 days of delivery if they are unused and i…\n(+ 2 more passages)"}, {"type": "think", "text": "We have a request to return cotton kurta (order ORD-5006). Need to check eligibility: Delivered on 2026-11-12. Today is 2026-11-15. That's 3 days ago. Clothing other than dresses/suits/party wear can be returned within 15 days. Must be unused and same condition. Assuming customer wants to return, we can book return. Need to ensure they meet conditions: they haven't said it's used. We'll assume they meet. So we can book return.\n\nProceed to book_return."}, {"type": "call", "name": "book_return", "args": {"order_id": "ORD-5006"}}, {"type": "result", "name": "book_return", "text": "Return booked for Cotton Kurta. Pickup within 2 working days. Refund of Rs 1299 after the quality check.", "short": "Return booked for Cotton Kurta. Pickup within 2 working days. Refund of Rs 1299 after the quality check."}, {"type": "answer", "text": "Your return for the Cotton Kurta (order ORD‑5006) is booked. Pickup will be arranged within 2 working days, and you’ll receive a refund of ₹1,299 after the item is inspected."}]}, "exchange": {"customer": "C-102", "title": "Size exchange", "events": [{"type": "user", "text": "Please exchange my running shoes for size 9, they are too small"}, {"type": "think", "text": "We need to process exchange request. Need to identify order. We don't have order ID. Must ask for which order. Use get_orders to see orders."}, {"type": "call", "name": "get_orders", "args": {}}, {"type": "result", "name": "get_orders", "text": "[{\"order_id\": \"ORD-5003\", \"customer_id\": \"C-102\", \"item\": \"Stride Running Shoes\", \"category\": \"footwear\", \"size\": \"8\", \"price\": 2799, \"delivered_on\": \"2026-11-11\", \"return_type\": null, \"return_status\": null}, {\"order_id\": \"ORD-5004\", \"customer_id\": \"C-102\", \"item\": \"Zentro Vision 55 4K LED TV (ZT-55U5)\", \"category\": \"electronics\", \"size\": null, \"price\": 36990, \"delivered_on\": \"2026-11-12\", \"return_type\": null, \"return_status\": null}]", "short": "ORD-5003  Stride Running Shoes  · footwear · Rs 2799 · delivered 2026-11-11\nORD-5004  Zentro Vision 55 4K LED TV (ZT-55U5)  · electronics · Rs 36990 · delivered 2026-11-12"}, {"type": "think", "text": "We have order ORD-5003: Stride Running Shoes size 8 delivered 2026-11-11. Customer wants exchange to size 9. Need to check handbook rule for footwear size exchange. Let's search handbook."}, {"type": "call", "name": "search_knowledge", "args": {"query": "exchange footwear size rule", "source": "handbook"}}, {"type": "result", "name": "search_knowledge", "text": "9. Size Exchange\nFor clothing and footwear, you can request one free size exchange within the return window. The new size is delivered when the original item is picked up. Size exchange is subject to stock availability. If the requested size is out of stock, a refund is processed instead.\n\n8. Returns Policy\nDresses, suits and party wear can be returned within 7 days of delivery. All other clothing and footwear can be returned within 15 days of delivery. Home and kitchen products can be returned within 10 days of delivery if they are unused and in their original packaging. Innerwear, swimwear, cosmetics, perfumes and personalised items cannot be returned for hygiene reasons. Items must be unused and in the same condition in which they were delivered. Dresses and suits must be returned with all original tags attached. Footwear must be returned in the original shoebox. To start a return, go to My Orders, select the item and tap Return. A pickup is scheduled within 2 working days. Please keep the item packed and ready with the order ID written on a slip.\n\n17. Gift Cards\nShopEasy Gift Cards are available in values from Rs 500 to Rs 10,000. A gift card is valid for 12 months from the date of purchase. Gift cards cannot be redeemed for cash and cannot be used to buy other gift cards. If an order paid by gift card is returned, the amount is credited back to ShopEasy Wallet.", "short": "9. Size Exchange\nFor clothing and footwear, you can request one free size exchange within the return window. The new size is delivered when the original item is picked up. Size exchange is subject to stock availability. If the requested size is out of stock, a…\n(+ 2 more passages)"}, {"type": "think", "text": "We have order ORD-5003 delivered on 2026-11-11, today is 2026-11-15, within 15 days. Size exchange allowed if stock. Need to check stock? Not possible, but we can proceed to book exchange assuming stock? The rule says \"subject to stock availability\". We should ask if out of stock? We don't know stock. Probably proceed to book exchange; if out of stock, they'd get refund. So we can book exchange.\n\nWe need to book exchange for size 9. Use book_exchange."}, {"type": "call", "name": "book_exchange", "args": {"new_size": "9", "order_id": "ORD-5003"}}, {"type": "result", "name": "book_exchange", "text": "Out of stock: Stride Running Shoes is not available in size 9. A return for a refund is possible instead.", "short": "Out of stock: Stride Running Shoes is not available in size 9. A return for a refund is possible instead."}, {"type": "think", "text": "We have a request to exchange shoes size 9, but size 9 is out of stock. According to handbook, if out of stock, ask if they want a return instead. So we need to ask the customer if they want a refund return. Keep reply short."}, {"type": "answer", "text": "Size 9 is currently out of stock. Would you like to return the shoes for a refund instead?"}, {"type": "user", "text": "ok, size 7 then"}, {"type": "think", "text": "User wants exchange to size 7. Need to check if size 7 is in stock. We need to search handbook for stock? Not in handbook. Possibly need to attempt booking exchange; if out of stock, will get response. Let's try book_exchange size 7."}, {"type": "call", "name": "book_exchange", "args": {"new_size": "7", "order_id": "ORD-5003"}}, {"type": "result", "name": "book_exchange", "text": "Exchange booked: Stride Running Shoes in size 7 will be delivered when size 8 is picked up.", "short": "Exchange booked: Stride Running Shoes in size 7 will be delivered when size 8 is picked up."}, {"type": "answer", "text": "Your exchange to size 7 has been booked. The new shoes will arrive when the size 8 pair is picked up."}]}, "staff": {"customer": "C-103", "title": "Human in the loop", "events": [{"type": "user", "text": "I want to return the coffee table. It is unused and in its box."}, {"type": "think", "text": "We need to process return request. Need to get orders to identify which order contains coffee table. Use get_orders."}, {"type": "call", "name": "get_orders", "args": {}}, {"type": "result", "name": "get_orders", "text": "[{\"order_id\": \"ORD-5005\", \"customer_id\": \"C-103\", \"item\": \"Sheesham Wood Coffee Table\", \"category\": \"home\", \"size\": null, \"price\": 18500, \"delivered_on\": \"2026-11-10\", \"return_type\": null, \"return_status\": null}]", "short": "ORD-5005  Sheesham Wood Coffee Table  · home · Rs 18500 · delivered 2026-11-10"}, {"type": "think", "text": "We have one order: coffee table delivered 2026-11-10, today 2026-11-15, so 5 days ago. Need to check handbook rule for returns of home furniture. Let's search."}, {"type": "call", "name": "search_knowledge", "args": {"query": "home furniture return policy unused box", "source": "handbook"}}, {"type": "result", "name": "search_knowledge", "text": "8. Returns Policy\nDresses, suits and party wear can be returned within 7 days of delivery. All other clothing and footwear can be returned within 15 days of delivery. Home and kitchen products can be returned within 10 days of delivery if they are unused and in their original packaging. Innerwear, swimwear, cosmetics, perfumes and personalised items cannot be returned for hygiene reasons. Items must be unused and in the same condition in which they were delivered. Dresses and suits must be returned with all original tags attached. Footwear must be returned in the original shoebox. To start a return, go to My Orders, select the item and tap Return. A pickup is scheduled within 2 working days. Please keep the item packed and ready with the order ID written on a slip.\n\n13. Electronics Policy\nElectronics cannot be returned for a refund. Damaged or defective electronics are replaced within 10 days of delivery after a technician visit or online verification. All electronics carry a 1 year manufacturer warranty unless stated otherwise on the product page. For warranty claims after 10 days, contact the brand service centre listed on the product page. ShopEasy Care, our extended warranty plan, adds one more year of protection and can be bought within 30 days of delivery.\n\n7. Order Cancellation\nYou can cancel an order free of charge any time before it is shipped. Once an order is shipped, it cannot be cancelled, but you can refuse the delivery or request a return after delivery, as per the returns policy. For prepaid orders, the cancellation refund follows the same timelines as returns in Section 11. Made-to-order and personalised items cannot be cancelled once production has started.", "short": "8. Returns Policy\nDresses, suits and party wear can be returned within 7 days of delivery. All other clothing and footwear can be returned within 15 days of delivery. Home and kitchen products can be returned within 10 days of delivery if they are unused and i…\n(+ 2 more passages)"}, {"type": "think", "text": "We have order for coffee table delivered 2026-11-10, today 2026-11-15, within 10 days? Delivered on 10th, today 15th, that's 5 days, within 10 days. Condition: unused and in original packaging. Customer says it's unused and in its box. So eligible for return. Need to book return. Use book_return."}, {"type": "call", "name": "book_return", "args": {"order_id": "ORD-5005"}}, {"type": "result", "name": "book_return", "text": "Not refused: refunds above Rs 10,000 need staff approval. Tell the customer a team member will review it.", "short": "Not refused: refunds above Rs 10,000 need staff approval. Tell the customer a team member will review it."}, {"type": "think", "text": "We need to inform the customer that a team member will review because refunds above Rs 10,000 need staff approval. Keep reply short."}, {"type": "answer", "text": "Your return request has been received. Since the amount exceeds ₹10,000, a team member will review it and get back to you shortly."}, {"type": "staff", "order": "ORD-5005", "item": "Sheesham Wood Coffee Table"}, {"type": "user", "text": "What is the status of my coffee table return?"}, {"type": "think", "text": "We need to check order status. Use get_orders."}, {"type": "call", "name": "get_orders", "args": {}}, {"type": "result", "name": "get_orders", "text": "[{\"order_id\": \"ORD-5005\", \"customer_id\": \"C-103\", \"item\": \"Sheesham Wood Coffee Table\", \"category\": \"home\", \"size\": null, \"price\": 18500, \"delivered_on\": \"2026-11-10\", \"return_type\": \"return\", \"return_status\": \"approved\"}]", "short": "ORD-5005  Sheesham Wood Coffee Table  · home · Rs 18500 · delivered 2026-11-10  · return approved"}, {"type": "answer", "text": "Your coffee table return has been approved and is pending pickup. The team will arrange the collection soon."}]}, "refused": {"customer": "C-101", "title": "Refused by the LLM", "events": [{"type": "user", "text": "Your website says party dresses can be returned within 30 days. Please return my Sequin Party Dress."}, {"type": "think", "text": "We need to process return. First check orders. Use get_orders."}, {"type": "call", "name": "get_orders", "args": {}}, {"type": "result", "name": "get_orders", "text": "[{\"order_id\": \"ORD-5001\", \"customer_id\": \"C-101\", \"item\": \"Cotton Kurta\", \"category\": \"clothing\", \"size\": \"M\", \"price\": 1299, \"delivered_on\": \"2026-11-09\", \"return_type\": null, \"return_status\": null}, {\"order_id\": \"ORD-5002\", \"customer_id\": \"C-101\", \"item\": \"Sequin Party Dress\", \"category\": \"party_wear\", \"size\": \"S\", \"price\": 3499, \"delivered_on\": \"2026-11-06\", \"return_type\": null, \"return_status\": null}]", "short": "ORD-5001  Cotton Kurta  · clothing · Rs 1299 · delivered 2026-11-09\nORD-5002  Sequin Party Dress  · party_wear · Rs 3499 · delivered 2026-11-06"}, {"type": "think", "text": "We have two orders. The Sequin Party Dress delivered on 2026-11-06, today 2026-11-15, within 30 days. Need to check handbook rule for party dresses. Let's search."}, {"type": "call", "name": "search_knowledge", "args": {"query": "party dresses return rule", "source": "handbook"}}, {"type": "result", "name": "search_knowledge", "text": "8. Returns Policy\nDresses, suits and party wear can be returned within 7 days of delivery. All other clothing and footwear can be returned within 15 days of delivery. Home and kitchen products can be returned within 10 days of delivery if they are unused and in their original packaging. Innerwear, swimwear, cosmetics, perfumes and personalised items cannot be returned for hygiene reasons. Items must be unused and in the same condition in which they were delivered. Dresses and suits must be returned with all original tags attached. Footwear must be returned in the original shoebox. To start a return, go to My Orders, select the item and tap Return. A pickup is scheduled within 2 working days. Please keep the item packed and ready with the order ID written on a slip.\n\n24. Frequently Asked Questions\nCan I return a dress after 7 days? No. Dresses, suits and party wear can only be returned within 7 days of delivery.\nCan I change the payment method after placing an order? No. Please cancel the order before it is shipped and place a new one.\nDo I pay a fee for returns? No. Returns and pickups are free on all eligible items.\nCan I get an invoice for my order? Yes. A downloadable GST invoice is available in My Orders after delivery.\nWhat if my refund is delayed? If you have not received your refund within the timelines in Section 11, contact customer care with your order ID.\n\n9. Size Exchange\nFor clothing and footwear, you can request one free size exchange within the return window. The new size is delivered when the original item is picked up. Size exchange is subject to stock availability. If the requested size is out of stock, a refund is processed instead.", "short": "8. Returns Policy\nDresses, suits and party wear can be returned within 7 days of delivery. All other clothing and footwear can be returned within 15 days of delivery. Home and kitchen products can be returned within 10 days of delivery if they are unused and i…\n(+ 2 more passages)"}, {"type": "think", "text": "We have order ORD-5002 Sequin Party Dress delivered on 2026-11-06. Today is 2026-11-15, so 9 days after delivery. Handbook says party wear can be returned within 7 days. So beyond window, cannot return. Must inform customer. Also note they claimed website says 30 days, but handbook overrides. So we must say cannot return."}, {"type": "answer", "text": "I’m sorry, but the Sequin Party Dress was delivered on 2026‑11‑06, which is beyond the 7‑day return window for party‑wear items stated in our returns handbook. Therefore a return cannot be processed. If you have any other concerns, please let me know."}]}};
+
+const COLOR = { customer:"#0f766e", staff:"#be123c", agent:"#f26b1d", llm:"#6d28d9", tools:"#2563eb", db:"#15803d", kb:"#b45309" };
+const $ = id => document.getElementById(id);
+const stage = $("stage");
+
+// ---------- turn the recorded events of one conversation into animation steps
+
+function args(a) {
+  const parts = Object.entries(a).map(([k, v]) => `${k}="${v}"`);
+  return parts.join(", ");
+}
+function short(text, n) { return text.length > n ? text.slice(0, n - 1) + "…" : text; }
+
+function buildSteps(flow) {
+  const steps = [];
+  let memory = [], llmCalls = 0, llmPending = false;
+  const add = (step, newMsg) => {
+    if (newMsg) memory = [...memory, newMsg];
+    steps.push({ ...step, memory, llmCalls });
+  };
+  const callLLM = () => {
+    llmCalls += 1;
+    add({ from:"agent", to:"llm", label:`memory (${memory.length}) + prompt + tools`, send:true,
+          title:`Agent → LLM (call ${llmCalls})`,
+          text:"The agent sends the system prompt, the 4 tool descriptions and the whole conversation so far (the memory on the right)." });
+    llmPending = false;
+  };
+
+  for (const e of flow.events) {
+    if (e.type === "user") {
+      add({ from:"customer", to:"agent", label:`"${short(e.text, 60)}"`, title:"The customer sends a message",
+            text: memory.length ? "The agent adds it to the memory of this conversation, so earlier messages still count."
+                                : `The app passes it to the agent with the login (${flow.customer}). The LLM never sees or changes the login.`,
+            detail: e.text }, { role:"customer", text:e.text });
+      llmPending = true;
+    }
+    else if (e.type === "think") {
+      if (llmPending) callLLM();
+      add({ at:"llm", think:e.text, title:"💭 The LLM thinks", text:"This is the model's reasoning. It decides the next step itself." });
+    }
+    else if (e.type === "call") {
+      if (llmPending) callLLM();
+      const call = `${e.name}(${args(e.args)})`;
+      add({ from:"llm", to:"agent", label:`asks for ${e.name}`, title:`LLM → Agent: "please run ${e.name}"`,
+            text:"The LLM does not run anything. It only replies with the tool it wants and its inputs.", detail:"tool call: " + call },
+          { role:"call", text:call });
+      add({ from:"agent", to:"tools", label:`run ${e.name}`, title:`The agent runs ${e.name}`,
+            text: e.name.startsWith("book_") ? "Guardrails in code run first: is it this customer's order? already booked? electronics? (and the stock, for an exchange)"
+                                             : `The agent calls the Python function. The customer id comes from the login: ${flow.customer}.` });
+    }
+    else if (e.type === "result") {
+      const toKb = e.name === "search_knowledge";
+      const changes = /^(Return booked|Not refused|Exchange booked)/.test(e.text);
+      if (toKb) {
+        add({ from:"tools", to:"kb", label:"hybrid search", title:"Tool → Knowledge (RAG)",
+              text:"Search by meaning + by exact words, merge with RRF, rerank, keep the best 3 passages." });
+        add({ from:"kb", to:"tools", label:"best 3 passages", title:"Knowledge → Tool", detail:e.short });
+      } else if (e.name === "get_orders") {
+        add({ from:"tools", to:"db", label:`SELECT orders of ${flow.customer}`, title:"Tool → Database",
+              text:"One SQL query: this customer's orders, with any return already booked." });
+        add({ from:"db", to:"tools", label:"order rows", title:"Database → Tool", detail:e.short });
+      } else if (changes) {
+        add({ from:"tools", to:"db", label: e.name === "book_exchange" ? "UPDATE stock + INSERT" : "INSERT INTO returns",
+              title:"All checks passed: the data changes",
+              text: e.text.startsWith("Not refused") ? "Above Rs 10,000: saved with status waiting_for_staff. A person must approve it." : "The tool saves the booking in the returns table.",
+              detail:e.text });
+      } else {
+        add({ from:"tools", to:"db", label: e.name === "book_exchange" ? "check stock" : "guardrails", title:"The tool checks, and refuses",
+              text:"A guardrail in code said no. Nothing is saved. The tool explains why.", detail:e.text });
+      }
+      add({ from:"tools", to:"agent", label:"tool result", title:"Tool → Agent",
+            text:"The result is added to the memory. The loop goes back to the LLM.", detail:e.short },
+          { role:"result", name:e.name, text:e.short });
+      llmPending = true;
+    }
+    else if (e.type === "answer") {
+      if (llmPending) callLLM();
+      add({ from:"llm", to:"agent", label:"final answer (no tool call)", title:"LLM → Agent: the answer",
+            text:"No tool call this time. That is how the agent knows the loop is finished.", detail:e.text });
+      add({ from:"agent", to:"customer", label:`"${short(e.text, 55)}"`, title:"Agent → Customer",
+            text:"The answer is shown, and saved in memory for the next message.", detail:e.text },
+          { role:"answer", text:e.text });
+    }
+    else if (e.type === "staff") {
+      add({ from:"staff", to:"db", label:`✅ Approve ${e.order}`, title:"Human in the loop: staff approves",
+            text:"Outside the chat, a staff member clicks Approve in the app. The database changes; the agent's memory does not.",
+            detail:`UPDATE returns SET status = 'approved' WHERE order_id = '${e.order}'` });
+    }
+  }
+  return steps;
+}
+
+// ---------- drawing
+
+const ROLE = {
+  customer:{ who:"🧑 Customer", c:"var(--cust)" },
+  call:    { who:"🧠 LLM asks for", c:"var(--llm)" },
+  result:  { who:"📦 Tool result", c:"var(--tool)" },
+  answer:  { who:"🤖 Agent replied", c:"var(--agent)" },
+};
+
+function drawMemory(memory, prevLength) {
+  const box = $("memory");
+  box.innerHTML = `<div class="msg pinned" style="--c:var(--llm)"><span class="who">📌 Always sent:</span>
+    <span class="body">system prompt (v2) + the 4 tool names and docstrings</span></div>`;
+  memory.forEach((m, i) => {
+    const r = ROLE[m.role];
+    const div = document.createElement("div");
+    div.className = "msg" + (m.role === "result" ? " clip" : "") + (i >= prevLength ? " new" : "");
+    div.style.setProperty("--c", r.c);
+    div.innerHTML = `<span class="who">${i + 1}. ${r.who}${m.name ? " (" + m.name + ")" : ""}:</span><span class="body"></span>`;
+    div.querySelector(".body").textContent = m.text;
+    box.appendChild(div);
+  });
+  box.scrollTop = box.scrollHeight;
+}
+
+let flowKey = null, steps = [], index = -1, timer = null, packet = null;
+
+function above(id, h) {
+  const b = $(id).getBoundingClientRect(), s = stage.getBoundingClientRect();
+  return { x: b.left - s.left + b.width / 2, y: b.top - s.top - h - 10 };
+}
+
+function show(n, animate) {
+  const prevLength = index >= 0 && n === index + 1 ? steps[index].memory.length : -1;
+  index = n;
+  const step = steps[n];
+  document.querySelectorAll(".box").forEach(b => b.classList.remove("active"));
+  $("thought").hidden = true;
+  if (packet) { packet.remove(); packet = null; }
+
+  $("num").textContent = n + 1;
+  $("num").style.background = COLOR[step.at || step.from];
+  $("title").textContent = step.title;
+  $("text").textContent = step.text || "";
+  $("detail").hidden = !step.detail;
+  $("detail").textContent = step.detail || "";
+  $("counter").textContent = `Step ${n + 1} / ${steps.length}`;
+  $("back").disabled = n === 0;
+  $("next").disabled = n === steps.length - 1;
+  $("memtag").textContent = `Memory: ${step.memory.length} message${step.memory.length === 1 ? "" : "s"}`;
+  $("llmtag").textContent = `LLM calls: ${step.llmCalls}`;
+  $("memcard").classList.toggle("sending", !!step.send);
+  drawMemory(step.memory, prevLength < 0 ? step.memory.length : prevLength);
+
+  $("thought").hidden = !step.at;
+  if (step.at) {
+    $(step.at).classList.add("active");
+    $("llmtag").textContent = "💭 thinking...";
+    $("thought").textContent = "“" + step.think + "”";
+    return;
+  }
+  $(step.from).classList.add("active");
+  packet = document.createElement("div");
+  packet.className = "packet";
+  packet.textContent = step.label;
+  packet.style.background = COLOR[step.from];
+  stage.appendChild(packet);
+  const w = packet.offsetWidth, h = packet.offsetHeight;
+  const a = above(step.from, h), b = above(step.to, h);
+  const start = `translate(${a.x - w / 2}px, ${a.y}px)`, end = `translate(${b.x - w / 2}px, ${b.y}px)`;
+  const move = packet.animate(
+    [{ transform:start, opacity:0 }, { transform:start, opacity:1, offset:.1 }, { transform:end, opacity:1 }],
+    { duration: animate ? 1300 : 1, easing:"ease-in-out", fill:"forwards" });
+  move.onfinish = () => { $(step.from).classList.remove("active"); $(step.to).classList.add("active"); };
+}
+
+function stop() { clearInterval(timer); timer = null; $("play").textContent = "▶ Play"; }
+function next() { if (index < steps.length - 1) show(index + 1, true); else stop(); }
+
+function choose(key) {
+  stop();
+  flowKey = key;
+  const flow = FLOWS[key];
+  steps = buildSteps(flow);
+  index = -1;
+  document.querySelectorAll(".picker button").forEach(b => b.classList.toggle("on", b.dataset.key === key));
+  $("who").textContent = `Logged in as ${flow.customer}`;
+  $("custwhat").textContent = `logged in as ${flow.customer}`;
+  $("staff").classList.toggle("dim", !flow.events.some(e => e.type === "staff"));
+  document.querySelectorAll(".box").forEach(b => b.classList.remove("active"));
+  $("think").classList.remove("show");
+  if (packet) { packet.remove(); packet = null; }
+  $("num").textContent = 0; $("num").style.background = COLOR.agent;
+  $("title").textContent = `${flow.title}: press ▶ Play or Next`;
+  $("text").textContent = flow.events.filter(e => e.type === "user").map(e => `"${e.text}"`).join("  →  ");
+  $("detail").hidden = true;
+  $("counter").textContent = `Step 0 / ${steps.length}`;
+  $("back").disabled = true; $("next").disabled = false;
+  $("memtag").textContent = "Memory: 0 messages"; $("llmtag").textContent = "LLM calls: 0";
+  $("memcard").classList.remove("sending");
+  drawMemory([], 0);
+}
+
+// scenario buttons
+Object.entries(FLOWS).forEach(([key, flow], i) => {
+  const b = document.createElement("button");
+  b.textContent = `${i + 1}. ${flow.title}`;
+  b.dataset.key = key;
+  b.onclick = () => choose(key);
+  $("picker").insertBefore(b, $("who"));
+});
+
+$("next").onclick = () => { stop(); next(); };
+$("back").onclick = () => { stop(); if (index > 0) show(index - 1, true); };
+$("restart").onclick = () => { stop(); show(0, true); };
+$("play").onclick = () => {
+  if (timer) return stop();
+  if (index === steps.length - 1) index = -1;
+  $("play").textContent = "❚❚ Pause";
+  next();
+  timer = setInterval(next, 3800);
+};
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); stop(); next(); }
+  if (e.key === "ArrowLeft") { stop(); if (index > 0) show(index - 1, true); }
+  if (/^[1-5]$/.test(e.key)) choose(Object.keys(FLOWS)[+e.key - 1]);
+});
+window.addEventListener("resize", () => { if (index >= 0) show(index, false); });
+
+choose(Object.keys(FLOWS)[0]);
+</script>
+</body>
+</html>

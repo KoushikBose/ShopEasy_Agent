@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Returns Agent Code Flow</title>
+<style>
+  :root { --ink:#1d2433; --muted:#566074; --line:#dfe3ec; --soft:#f5f6fa; --s: clamp(12px, 1.05vw, 22px); }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:#fff; color:var(--ink); font-family:"Avenir Next", -apple-system, "Segoe UI", sans-serif; font-size:var(--s); }
+  body { display:grid; grid-template-rows:auto auto minmax(0, 44fr) minmax(0, 50fr); height:100vh; overflow:hidden; }
+
+  header { display:flex; align-items:center; gap:1em; padding:.8em 1.6em .3em; }
+  header h1 { margin:0; font-size:1.55em; font-weight:800; white-space:nowrap; }
+  .controls { margin-left:auto; display:flex; gap:.5em; align-items:center; }
+  button { font:inherit; font-weight:700; border:2px solid var(--line); background:#fff; color:var(--ink); border-radius:.6em; padding:.4em .9em; cursor:pointer; }
+  button.primary { background:#f26b1d; border-color:#f26b1d; color:#fff; }
+  button:disabled { opacity:.35; cursor:default; }
+  .counter { color:var(--muted); font-weight:600; min-width:6.5em; text-align:right; }
+  .picker { display:flex; gap:.5em; padding:.2em 1.6em .4em; align-items:center; flex-wrap:wrap; }
+  .picker button { border-radius:2em; padding:.35em 1em; }
+  .picker button.on { background:var(--ink); border-color:var(--ink); color:#fff; }
+  .command { margin-left:auto; font-family:"SF Mono", Menlo, Consolas, monospace; font-weight:700; background:#111827; color:#fbbf24;
+    padding:.35em .8em; border-radius:.5em; font-size:.95em; }
+
+  .map { min-height:0; padding:.2em 1.6em; }
+  svg { width:100%; height:100%; display:block; }
+  .box rect { fill:#fff; stroke:#cfd5e2; stroke-width:2; transition:all .3s; }
+  .box .name { font-weight:800; font-size:20px; fill:#9aa3b5; transition:fill .3s; }
+  .box .sub { font-size:12.5px; fill:#aab2c2; transition:fill .3s; }
+  .box.on rect { fill:var(--tint); stroke:var(--c); stroke-width:4; filter:drop-shadow(0 4px 10px rgba(0,0,0,.12)); }
+  .box.on .name { fill:var(--c); }
+  .box.on .sub { fill:#3c4456; }
+  .box.outside rect { stroke-dasharray:6 5; }
+  .edge { stroke:#e3e7ef; stroke-width:2; fill:none; transition:stroke .3s; }
+  .edge.on { stroke:#f26b1d; stroke-width:4; stroke-dasharray:10 7; animation:flow .8s linear infinite; marker-end:url(#arrow); }
+  @keyframes flow { to { stroke-dashoffset:-17; } }
+
+  .bottom { display:grid; grid-template-columns: minmax(0, 34fr) minmax(0, 66fr); gap:1.2em; padding:.4em 1.6em 1em; min-height:0; }
+  .card { background:var(--soft); border-radius:1em; padding:.9em 1.1em; min-height:0; display:flex; flex-direction:column; }
+  .head { display:flex; gap:.7em; align-items:center; }
+  .num { flex:none; width:2.2em; height:2.2em; border-radius:50%; background:#f26b1d; color:#fff; font-weight:800; font-size:1.1em;
+    display:flex; align-items:center; justify-content:center; }
+  .head h2 { margin:0; font-size:1.35em; line-height:1.2; }
+  .text { margin:.6em 0 0; font-size:1.2em; line-height:1.45; color:#39414f; }
+  .files { margin-top:auto; padding-top:.6em; color:var(--muted); font-weight:600; }
+
+  .codehead { display:flex; align-items:center; gap:.6em; font-weight:800; }
+  .codehead .file { font-family:"SF Mono", Menlo, Consolas, monospace; background:#111827; color:#fff; padding:.15em .6em; border-radius:.4em; }
+  .codehead .lines { color:var(--muted); font-weight:600; }
+  .code { margin-top:.5em; background:#fff; border:1px solid var(--line); border-radius:.7em; overflow:auto; min-height:0; flex:1;
+    font-family:"SF Mono", Menlo, Consolas, monospace; font-size:.95em; line-height:1.55; padding:.4em 0; }
+  .ln { display:flex; white-space:pre-wrap; padding:0 .8em 0 0; }
+  .ln > span:last-child { min-width:0; }
+  .ln .no { flex:none; width:3.2em; text-align:right; padding-right:.9em; color:#b2b9c7; user-select:none; }
+  .ln.mark { background:#fff1c2; font-weight:700; }
+  .ln.mark .no { color:#b45309; }
+  .kw { color:#7c3aed; } .str { color:#047857; } .com { color:#8a93a6; font-style:italic; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>How the code runs: returns_agent</h1>
+  <div class="controls">
+    <button id="back">◀ Back</button>
+    <button id="play" class="primary">▶ Play</button>
+    <button id="next">Next ▶</button>
+    <span class="counter" id="counter"></span>
+  </div>
+</header>
+
+<div class="picker" id="picker"><span class="command" id="command"></span></div>
+
+<div class="map">
+  <svg id="svg" viewBox="0 -10 900 380" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#f26b1d"/>
+      </marker>
+    </defs>
+    <g id="edges"></g>
+    <g id="boxes"></g>
+  </svg>
+</div>
+
+<div class="bottom">
+  <div class="card">
+    <div class="head"><div class="num" id="num">0</div><h2 id="title"></h2></div>
+    <p class="text" id="text"></p>
+    <div class="files" id="files"></div>
+  </div>
+  <div class="card">
+    <div class="codehead"><span class="file" id="cfile"></span><span class="lines" id="clines"></span></div>
+    <div class="code" id="code"></div>
+  </div>
+</div>
+
+<script>
+const FLOWS = [{"key": "setup", "title": "0. Create the data", "command": "python database.py", "steps": [{"on": ["database.py", "shopeasy.db"], "edges": ["database.py>shopeasy.db"], "title": "python database.py runs reset()", "text": "Run once before the demo, or any time you want fresh data. It creates the 4 tables in the file shopeasy.db.", "code": {"file": "database.py", "first": 148, "lines": ["if __name__ == \"__main__\":", "    reset()", "    print(\"Created shopeasy.db: 6 customers, 17 orders\")"], "marks": [1]}}, {"on": ["database.py", "shopeasy.db"], "edges": ["database.py>shopeasy.db"], "title": "reset(): 4 tables + sample rows", "text": "customers, orders, returns (empty) and stock. Delivery dates are counted back from today, so the demo works on any day.", "code": {"file": "database.py", "first": 93, "lines": ["def reset():", "    for table in [\"customers\", \"orders\", \"returns\", \"stock\"]:", "        run_sql(f\"DROP TABLE IF EXISTS {table}\")", "", "    run_sql(\"CREATE TABLE customers (customer_id TEXT, name TEXT)\")", "    run_sql(\"CREATE TABLE orders (order_id TEXT, customer_id TEXT, item TEXT, category TEXT, size TEXT, price INTEGER, delivered_on TEXT)\")", "    run_sql(\"CREATE TABLE returns (return_id INTEGER PRIMARY KEY, order_id TEXT, type TEXT, status TEXT, details TEXT)\")", "    run_sql(\"CREATE TABLE stock (item TEXT, size TEXT, quantity INTEGER)\")"], "marks": [4, 5, 6, 7]}}]}, {"key": "start", "title": "1. The app starts", "command": "streamlit run app.py", "steps": [{"on": ["app.py"], "edges": [], "title": "Streamlit runs app.py from top to bottom", "text": "The first thing it needs is the agent, so it imports build_agent from agent.py.", "code": {"file": "app.py", "first": 5, "lines": ["import streamlit as st", "", "import database", "from agent import build_agent"], "marks": [2, 3]}}, {"on": ["agent.py", "prompts.py", "tools.py"], "edges": ["agent.py>prompts.py", "agent.py>tools.py"], "title": "agent.py imports the prompt and the 4 tools", "text": "Python loads prompts.py (the text of v1 and v2) and tools.py (the 4 tools).", "code": {"file": "agent.py", "first": 12, "lines": ["from prompts import PROMPTS, CURRENT", "from tools import get_orders, search_knowledge, book_return, book_exchange"], "marks": [0, 1]}}, {"on": ["tools.py", "database.py", "retrieval.py"], "edges": ["tools.py>database.py", "tools.py>retrieval.py"], "title": "tools.py imports database.py and retrieval.py", "text": "The tools never write SQL or vector search themselves. They call these two files.", "code": {"file": "tools.py", "first": 16, "lines": ["import database", "from retrieval import search"], "marks": [0, 1]}}, {"on": ["retrieval.py", "knowledge/"], "edges": ["retrieval.py>knowledge/"], "title": "Importing retrieval.py builds the search index", "text": "These two lines run straight away: every paragraph of the handbook and catalog goes into Qdrant, by meaning and by words. That is why the app takes a few seconds to start.", "code": {"file": "retrieval.py", "first": 43, "lines": ["    # Step 3: store each paragraph with its two vectors, and keep the text with it", "    for number, paragraph in enumerate(paragraphs):", "        point = models.PointStruct(", "            id=number,", "            vector={\"meaning\": by_meaning(paragraph), \"words\": by_words(paragraph)},", "            payload={\"text\": paragraph},", "        )", "        qdrant.upsert(name, [point])", "", "", "add_file(\"handbook\")", "add_file(\"catalog\")"], "marks": [4, 10, 11]}}, {"on": ["agent.py", "llm"], "edges": ["agent.py>llm"], "title": "build_agent(): the 5 ingredients", "text": "LLM + tools + system prompt + memory + a limit on the loop. That is the whole agent.", "code": {"file": "agent.py", "first": 20, "lines": ["def build_agent(version=CURRENT):", "    today = date.today().strftime(\"%d %B %Y\")", "    return create_agent(", "        model=ChatGroq(model=\"openai/gpt-oss-120b\", max_retries=8),     # the LLM (retries if Groq is busy)", "        tools=[get_orders, search_knowledge, book_return, book_exchange],", "        system_prompt=PROMPTS[version].format(today=today),", "        checkpointer=InMemorySaver(),                                    # remembers the conversation", "        middleware=[ToolCallLimitMiddleware(run_limit=10)],              # at most 10 tool calls per message", "    )"], "marks": [3, 4, 5, 6, 7]}}, {"on": ["app.py", "agent.py"], "edges": ["app.py>agent.py"], "title": "app.py keeps the agent in a cache", "text": "Streamlit reruns app.py on every click. @st.cache_resource builds the agent only once, so its memory survives.", "code": {"file": "app.py", "first": 13, "lines": ["# Streamlit reruns this whole file on every click, so build the agent only once", "@st.cache_resource", "def get_agent():", "    return build_agent()"], "marks": [1, 3]}}]}, {"key": "message", "title": "2. A message arrives", "command": "\"I want to return the kurta\"", "steps": [{"on": ["app.py", "agent.py"], "edges": ["app.py>agent.py"], "title": "app.py hands the message to the agent", "text": "Three things go in: the message, which conversation it belongs to (thread_id = memory), and who is logged in (context).", "code": {"file": "app.py", "first": 92, "lines": ["            for update in agent.stream(", "                {\"messages\": [(\"user\", text)]},", "                {\"configurable\": {\"thread_id\": f\"{customer_id}-{session_id}\"}},   # memory: one per customer, per tab", "                context={\"customer_id\": customer_id},                              # the tools read who is logged in", "                stream_mode=\"updates\",", "            ):"], "marks": [1, 2, 3]}}, {"on": ["agent.py", "llm"], "edges": ["agent.py>llm"], "title": "The agent's loop calls the LLM", "text": "You did not write this loop: create_agent runs it. It sends the system prompt, the tool docstrings and the memory to Groq.", "code": {"file": "agent.py", "first": 22, "lines": ["    return create_agent(", "        model=ChatGroq(model=\"openai/gpt-oss-120b\", max_retries=8),     # the LLM (retries if Groq is busy)", "        tools=[get_orders, search_knowledge, book_return, book_exchange],", "        system_prompt=PROMPTS[version].format(today=today),", "        checkpointer=InMemorySaver(),                                    # remembers the conversation", "        middleware=[ToolCallLimitMiddleware(run_limit=10)],              # at most 10 tool calls per message"], "marks": [1, 2, 3]}}, {"on": ["llm", "agent.py", "tools.py"], "edges": ["agent.py>llm", "agent.py>tools.py"], "title": "The LLM picks a tool, the agent runs it", "text": "The LLM chose get_orders by reading its docstring. The customer id comes from the login (runtime.context), never from the LLM.", "code": {"file": "tools.py", "first": 23, "lines": ["def get_orders(runtime: ToolRuntime) -> list:", "    \"\"\"Get all orders of the customer, with any return or exchange booked.\"\"\"", "    return database.get_customer_orders(runtime.context[\"customer_id\"])"], "marks": [1, 2]}}, {"on": ["tools.py", "database.py", "shopeasy.db"], "edges": ["tools.py>database.py", "database.py>shopeasy.db"], "title": "database.py runs the SQL", "text": "All orders of this customer, plus any return already booked (LEFT JOIN).", "code": {"file": "database.py", "first": 26, "lines": ["def get_customer_orders(customer_id):", "    return run_sql(\"\"\"", "        SELECT orders.*, returns.type AS return_type, returns.status AS return_status", "        FROM orders", "        LEFT JOIN returns ON orders.order_id = returns.order_id", "        WHERE orders.customer_id = ?", "    \"\"\", (customer_id,))"], "marks": [2, 4, 5]}}, {"on": ["database.py", "shopeasy.db"], "edges": ["database.py>shopeasy.db"], "title": "Every query goes through run_sql()", "text": "Open the file, run the SQL, give back the rows as dictionaries the LLM can read.", "code": {"file": "database.py", "first": 17, "lines": ["def run_sql(sql, values=()):", "    with sqlite3.connect(FILE) as con:", "        con.row_factory = sqlite3.Row", "        return [dict(row) for row in con.execute(sql, values)]"], "marks": [1, 3]}}, {"on": ["agent.py", "llm", "tools.py", "retrieval.py", "knowledge/"], "edges": ["agent.py>llm", "agent.py>tools.py", "tools.py>retrieval.py", "retrieval.py>knowledge/"], "title": "Next round: the LLM asks for the rule", "text": "The result went back to the LLM. Now it calls search_knowledge, which calls search() in retrieval.py.", "code": {"file": "tools.py", "first": 29, "lines": ["def search_knowledge(query: str, source: Literal[\"handbook\", \"catalog\"]) -> str:", "    \"\"\"Search the handbook for return rules, or the catalog for product details.\"\"\"", "    return search(query, source)"], "marks": [1, 2]}}, {"on": ["retrieval.py", "knowledge/"], "edges": ["retrieval.py>knowledge/"], "title": "Hybrid search: meaning + words, merged by RRF", "text": "Two searches (by meaning, by exact words), merged into one top 10.", "code": {"file": "retrieval.py", "first": 62, "lines": ["    # Step 1: search by meaning (10 results)", "    meaning_search = models.Prefetch(query=by_meaning(query), using=\"meaning\", limit=10)", "", "    # Step 2: search by exact words (10 results)", "    words_search = models.Prefetch(query=by_words(query), using=\"words\", limit=10)", "", "    # Step 3: Qdrant runs both searches first (\"prefetch\"), then merges them into one top 10 with RRF", "    result = qdrant.query_points(", "        source,", "        prefetch=[meaning_search, words_search],", "        query=models.RrfQuery(rrf=models.Rrf(k=60)),     # RRF: a passage ranked high in both lists comes first", "        limit=10,", "    )", "    top_10 = []", "    for point in result.points:"], "marks": [1, 4, 10]}}, {"on": ["retrieval.py"], "edges": [], "title": "Rerank: keep the best 3", "text": "A small model scores each of the 10 against the question. The best 3 passages go back to the LLM.", "code": {"file": "retrieval.py", "first": 79, "lines": ["    # Step 4: rerank: give each of the 10 a score for how well it answers the question", "    scores = list(reranker.rerank(query, top_10))", "", "    # Step 5: keep the 3 passages with the highest scores", "    scored = []", "    for i in range(len(top_10)):", "        scored.append((scores[i], top_10[i]))", "    scored.sort(reverse=True)               # highest score first", "    best_3 = scored[:3]"], "marks": [1, 8]}}, {"on": ["agent.py", "llm", "tools.py"], "edges": ["agent.py>llm", "agent.py>tools.py"], "title": "Next round: the LLM decides to book", "text": "From the rule and the delivery date, the LLM decides the return is allowed, and asks for book_return.", "code": {"file": "tools.py", "first": 50, "lines": ["def book_return(order_id: str, runtime: ToolRuntime) -> str:", "    \"\"\"Book a return and refund for an order.\"\"\"", "    order = database.get_order_for_customer(order_id, runtime.context[\"customer_id\"])", "", "    # 1. Guardrails: stop here if the return is not allowed", "    refusal = check_guardrails(order)", "    if refusal:", "        return refusal"], "marks": [0, 5, 7]}}, {"on": ["tools.py", "database.py"], "edges": ["tools.py>database.py"], "title": "Guardrails in code", "text": "Three checks the LLM cannot skip: is it this customer's order, is it already booked, is it electronics.", "code": {"file": "tools.py", "first": 37, "lines": ["def check_guardrails(order):", "    if order is None:", "        return \"Refused: this is not the customer's order.\"", "    if database.is_return_booked(order[\"order_id\"]):", "        return \"Refused: a return or exchange is already booked for this order.\"", "    if order[\"category\"] == \"electronics\":", "        return \"Refused: electronics cannot be returned or exchanged.\"", "    return None"], "marks": [1, 3, 5, 6]}}, {"on": ["tools.py", "database.py", "shopeasy.db"], "edges": ["tools.py>database.py", "database.py>shopeasy.db"], "title": "The action: save the return", "text": "Above Rs 10,000 it waits for staff (human in the loop). Otherwise it is approved straight away.", "code": {"file": "tools.py", "first": 59, "lines": ["    price = order[\"price\"]", "", "    # 2. Big refund: save it, but a staff member must approve (human in the loop)", "    if price > 10000:", "        database.add_return(order_id, \"return\", \"waiting_for_staff\", f\"Refund of Rs {price}\")", "        return \"Not refused: refunds above Rs 10,000 need staff approval. Tell the customer a team member will review it.\"", "", "    # 3. Normal refund: save it as approved", "    else:", "        database.add_return(order_id, \"return\", \"approved\", f\"Refund of Rs {price}\")", "        return f\"Return booked for {order['item']}. Pickup within 2 working days. Refund of Rs {price} after the quality check.\""], "marks": [3, 4, 9]}}, {"on": ["agent.py", "llm", "app.py"], "edges": ["agent.py>llm", "app.py>agent.py"], "title": "The LLM answers, app.py shows every step", "text": "No tool call means the loop is done. Each step streamed back to app.py live: thinks, tool, result, and the final reply.", "code": {"file": "app.py", "first": 98, "lines": ["                for node in update.values():", "                    for message in (node or {}).get(\"messages\", []):", "                        for label, step_text in get_steps(message):", "                            show_step(label, step_text)          # show it live", "                            steps.append((label, step_text))", "                        if message.type == \"ai\" and message.content:", "                            reply = message.content              # the last thing the LLM says is the answer", "            status.update(label=f\"Agent steps ({len(steps)})\", state=\"complete\", expanded=False)"], "marks": [3, 6]}}]}, {"key": "staff", "title": "3. Staff approves", "command": "click Approve in the sidebar", "steps": [{"on": ["app.py", "database.py", "shopeasy.db"], "edges": ["app.py>database.py", "database.py>shopeasy.db"], "title": "The sidebar lists returns waiting for staff", "text": "Every time the page draws, app.py asks the database for returns with status waiting_for_staff.", "code": {"file": "app.py", "first": 28, "lines": ["    st.subheader(\"🧑‍💼 Staff approvals\")", "    pending = database.get_pending_returns()", "    if not pending:", "        st.caption(\"Nothing is waiting for approval.\")", "    for row in pending:", "        st.write(f\"**{row['order_id']}** · {row['item']} · {row['details']}\")", "        if st.button(\"Approve\", key=f\"approve-{row['return_id']}\"):", "            database.update_return_status(row[\"return_id\"], \"approved\")", "            st.rerun()", "        if st.button(\"Reject\", key=f\"reject-{row['return_id']}\"):", "            database.update_return_status(row[\"return_id\"], \"rejected\")", "            st.rerun()"], "marks": [1, 6, 7, 10]}}, {"on": ["database.py", "shopeasy.db"], "edges": ["database.py>shopeasy.db"], "title": "Approve = one UPDATE", "text": "The agent is not involved. A person changes the data. Next time the customer asks, get_orders sees 'approved'.", "code": {"file": "database.py", "first": 81, "lines": ["def update_return_status(return_id, status):", "    run_sql(\"UPDATE returns SET status = ? WHERE return_id = ?\", (status, return_id))"], "marks": [1]}}]}, {"key": "evals", "title": "4. Evals", "command": "python evals.py v2", "steps": [{"on": ["evals.py", "golden_dataset.py", "agent.py"], "edges": ["evals.py>golden_dataset.py", "evals.py>agent.py"], "title": "evals.py builds the agent with one prompt version", "text": "python evals.py v1 or v2: the same agent and tools, only the prompt changes.", "code": {"file": "evals.py", "first": 9, "lines": ["import database", "from agent import build_agent", "from golden_dataset import TESTS", "", "version = sys.argv[1] if len(sys.argv) > 1 else \"v2\"     # python evals.py v1  ->  \"v1\"", "agent = build_agent(version)", "score = 0"], "marks": [2, 4, 5]}}, {"on": ["golden_dataset.py"], "edges": [], "title": "The golden dataset", "text": "Each test: who is logged in, what they say, and what should be in the returns table afterwards.", "code": {"file": "golden_dataset.py", "first": 4, "lines": ["TESTS = [", "    (\"C-101\", \"I want to return the kurta I got last week\",                \"ORD-5001 return approved\"),", "    (\"C-101\", \"Please return my Sequin Party Dress\",                       \"nothing\"),", "    (\"C-102\", \"I want to return my TV\",                                    \"nothing\"),", "    (\"C-102\", \"The running shoes are too small, can I get size 7?\",        \"ORD-5003 exchange approved\"),", "    (\"C-102\", \"The running shoes are too small, I need size 9\",            \"nothing\"),", "    (\"C-103\", \"I want to return the coffee table. It is unused and in its box.\", \"ORD-5005 return waiting_for_staff\"),"], "marks": [1, 2, 3, 4, 5]}}, {"on": ["evals.py", "agent.py", "database.py"], "edges": ["evals.py>agent.py", "evals.py>database.py"], "title": "Run every test on fresh data", "text": "Reset the database, ask the agent, then look at what got booked.", "code": {"file": "evals.py", "first": 17, "lines": ["for number, (customer, question, expected) in enumerate(TESTS, start=1):", "    database.reset()           # fresh data for every test", "", "    # 1. Ask the agent", "    agent.invoke(", "        {\"messages\": [(\"user\", question)]},", "        {\"configurable\": {\"thread_id\": f\"test-{number}\"}},     # each test is its own conversation", "        context={\"customer_id\": customer},", "    )", "", "    # 2. See what it booked", "    booked = \"nothing\"", "    for order in database.get_customer_orders(customer):", "        if order[\"return_type\"]:", "            booked = f\"{order['order_id']} {order['return_type']} {order['return_status']}\"", "", "    # 3. Compare with the expected answer", "    if booked == expected:"], "marks": [1, 4, 12]}}, {"on": ["evals.py"], "edges": [], "title": "Compare with code, not with an LLM", "text": "Actions are facts: a return was booked or it wasn't. A simple comparison gives PASS or FAIL and a score.", "code": {"file": "evals.py", "first": 33, "lines": ["    # 3. Compare with the expected answer", "    if booked == expected:", "        score += 1", "        print(f\"PASS  test {number}: {question}\")", "    else:", "        print(f\"FAIL  test {number}: {question}  | expected: {expected} | got: {booked}\")", "", "print(f\"\\n{version} score: {score}/{len(TESTS)}\")"], "marks": [1]}}]}, {"key": "tools", "title": "5. Tools deep dive", "command": "tools.py → database.py", "steps": [{"on": ["tools.py"], "edges": [], "title": "Two kinds of tools: read and act", "text": "get_orders and search_knowledge only READ. book_return and book_exchange ACT: they change data, so they check guardrails first.", "code": {"file": "tools.py", "first": 1, "lines": ["\"\"\"The 4 tools of the Returns Agent.", "", "    get_orders        reads  the customer's orders        (database.py)", "    search_knowledge  reads  the handbook or the catalog  (retrieval.py)", "    book_return       acts   books a return,   if the guardrails pass", "    book_exchange     acts   books an exchange, if the guardrails pass", "", "The LLM reads each tool's docstring to decide when to use it.", "runtime.context[\"customer_id\"] is the logged-in customer. The LLM cannot change it.", "\"\"\""], "marks": [2, 3, 4, 5, 7]}}, {"on": ["agent.py", "tools.py"], "edges": ["agent.py>tools.py"], "title": "Read tool 1: get_orders", "text": "@tool turns a Python function into a tool. The docstring is what the LLM reads to choose it. runtime.context is the login, set by the app.", "code": {"file": "tools.py", "first": 23, "lines": ["def get_orders(runtime: ToolRuntime) -> list:", "    \"\"\"Get all orders of the customer, with any return or exchange booked.\"\"\"", "    return database.get_customer_orders(runtime.context[\"customer_id\"])"], "marks": [1, 2]}}, {"on": ["tools.py", "database.py", "shopeasy.db"], "edges": ["tools.py>database.py", "database.py>shopeasy.db"], "title": "→ database.get_customer_orders", "text": "The tool has no SQL. It asks database.py, which reads the orders table and joins the returns table.", "code": {"file": "database.py", "first": 25, "lines": ["# Gets all orders of a customer, and shows if a return is booked", "def get_customer_orders(customer_id):", "    return run_sql(\"\"\"", "        SELECT orders.*, returns.type AS return_type, returns.status AS return_status", "        FROM orders", "        LEFT JOIN returns ON orders.order_id = returns.order_id", "        WHERE orders.customer_id = ?", "    \"\"\", (customer_id,))"], "marks": [1, 3, 5]}}, {"on": ["tools.py", "retrieval.py", "knowledge/"], "edges": ["tools.py>retrieval.py", "retrieval.py>knowledge/"], "title": "Read tool 2: search_knowledge", "text": "Literal[\"handbook\", \"catalog\"] means the LLM can only pick one of these two. The search itself lives in retrieval.py.", "code": {"file": "tools.py", "first": 29, "lines": ["def search_knowledge(query: str, source: Literal[\"handbook\", \"catalog\"]) -> str:", "    \"\"\"Search the handbook for return rules, or the catalog for product details.\"\"\"", "    return search(query, source)"], "marks": [0, 2]}}, {"on": ["tools.py", "database.py"], "edges": ["tools.py>database.py"], "title": "Action tool: book_return starts by fetching the order", "text": "It asks for the order with BOTH the order id (from the LLM) and the customer id (from the login).", "code": {"file": "tools.py", "first": 50, "lines": ["def book_return(order_id: str, runtime: ToolRuntime) -> str:", "    \"\"\"Book a return and refund for an order.\"\"\"", "    order = database.get_order_for_customer(order_id, runtime.context[\"customer_id\"])", "", "    # 1. Guardrails: stop here if the return is not allowed", "    refusal = check_guardrails(order)", "    if refusal:", "        return refusal"], "marks": [2, 5, 7]}}, {"on": ["database.py", "shopeasy.db"], "edges": ["database.py>shopeasy.db"], "title": "Guardrail 1: is it this customer's order?", "text": "The SQL only finds the order if it belongs to this customer. Otherwise it returns None, so nobody can touch another customer's order.", "code": {"file": "database.py", "first": 37, "lines": ["# Gets one order, but only if it belongs to this customer", "def get_order_for_customer(order_id, customer_id):", "    rows = run_sql(\"SELECT * FROM orders WHERE order_id = ? AND customer_id = ?\", (order_id, customer_id))", "    if len(rows) == 0:", "        return None      # not this customer's order (or no such order)", "    return rows[0]       # the order"], "marks": [2, 4]}}, {"on": ["tools.py"], "edges": [], "title": "check_guardrails(): 3 checks, stops at the first no", "text": "Returns the reason to refuse, or None if everything is fine. The LLM cannot skip or change these.", "code": {"file": "tools.py", "first": 36, "lines": ["# Returns the reason to refuse, or None if all checks pass", "def check_guardrails(order):", "    if order is None:", "        return \"Refused: this is not the customer's order.\"", "    if database.is_return_booked(order[\"order_id\"]):", "        return \"Refused: a return or exchange is already booked for this order.\"", "    if order[\"category\"] == \"electronics\":", "        return \"Refused: electronics cannot be returned or exchanged.\"", "    return None"], "marks": [2, 4, 6, 7, 8]}}, {"on": ["tools.py", "database.py", "shopeasy.db"], "edges": ["tools.py>database.py", "database.py>shopeasy.db"], "title": "Guardrail 2: already booked?", "text": "One query on the returns table. An order can be returned or exchanged only once.", "code": {"file": "database.py", "first": 45, "lines": ["# Tells if this order already has a return or exchange", "def is_return_booked(order_id):", "    return len(run_sql(\"SELECT * FROM returns WHERE order_id = ?\", (order_id,))) > 0"], "marks": [2]}}, {"on": ["tools.py"], "edges": [], "title": "After the guardrails: the business rule", "text": "Above Rs 10,000 the refund waits for a person (human in the loop). Otherwise it is approved.", "code": {"file": "tools.py", "first": 59, "lines": ["    price = order[\"price\"]", "", "    # 2. Big refund: save it, but a staff member must approve (human in the loop)", "    if price > 10000:", "        database.add_return(order_id, \"return\", \"waiting_for_staff\", f\"Refund of Rs {price}\")", "        return \"Not refused: refunds above Rs 10,000 need staff approval. Tell the customer a team member will review it.\"", "", "    # 3. Normal refund: save it as approved", "    else:", "        database.add_return(order_id, \"return\", \"approved\", f\"Refund of Rs {price}\")", "        return f\"Return booked for {order['item']}. Pickup within 2 working days. Refund of Rs {price} after the quality check.\""], "marks": [3, 8]}}, {"on": ["tools.py", "database.py", "shopeasy.db"], "edges": ["tools.py>database.py", "database.py>shopeasy.db"], "title": "The action: one INSERT", "text": "Only now does the data change. Status is approved or waiting_for_staff.", "code": {"file": "database.py", "first": 57, "lines": ["# Saves a new return or exchange", "def add_return(order_id, type, status, details):", "    run_sql(\"INSERT INTO returns (order_id, type, status, details) VALUES (?, ?, ?, ?)\",", "            (order_id, type, status, details))"], "marks": [2]}}, {"on": ["tools.py", "database.py"], "edges": ["tools.py>database.py"], "title": "book_exchange: the same guardrails first", "text": "Same start as book_return: fetch the order for this customer, run check_guardrails. Then one extra check: the item must have a size.", "code": {"file": "tools.py", "first": 73, "lines": ["def book_exchange(order_id: str, new_size: str, runtime: ToolRuntime) -> str:", "    \"\"\"Exchange an order for a different size.\"\"\"", "    order = database.get_order_for_customer(order_id, runtime.context[\"customer_id\"])", "", "    # 1. Guardrails: stop here if the exchange is not allowed", "    refusal = check_guardrails(order)", "    if refusal:", "        return refusal", "", "    item = order[\"item\"]", "    old_size = order[\"size\"]", "", "    # 2. Only items with a size (clothing, footwear) can be exchanged", "    if old_size is None:", "        return \"Refused: only clothing and footwear can be exchanged for another size.\"", "", "    # 3. The new size must be in stock"], "marks": [2, 5, 13]}}, {"on": ["tools.py", "database.py", "shopeasy.db"], "edges": ["tools.py>database.py", "database.py>shopeasy.db"], "title": "book_exchange: stock check, then the action", "text": "If the new size is out of stock it refuses and suggests a return. Otherwise it takes one from stock and saves the exchange.", "code": {"file": "tools.py", "first": 89, "lines": ["    # 3. The new size must be in stock", "    elif not database.is_in_stock(item, new_size):", "        return f\"Out of stock: {item} is not available in size {new_size}. A return for a refund is possible instead.\"", "", "    # 4. All good: take one from stock and save the exchange", "    else:", "        database.reduce_stock(item, new_size)", "        database.add_return(order_id, \"exchange\", \"approved\", f\"Size {old_size} to size {new_size}\")", "        return f\"Exchange booked: {item} in size {new_size} will be delivered when size {old_size} is picked up.\""], "marks": [1, 6, 7]}}, {"on": ["database.py", "shopeasy.db"], "edges": ["database.py>shopeasy.db"], "title": "Stock: one check, one change", "text": "is_in_stock is a guardrail (read). reduce_stock is an action (write).", "code": {"file": "database.py", "first": 50, "lines": ["# Tells if this item is available in this size", "def is_in_stock(item, size):", "    return len(run_sql(\"SELECT * FROM stock WHERE item = ? AND size = ? AND quantity > 0\", (item, size))) > 0"], "marks": [2]}}, {"on": ["tools.py", "database.py"], "edges": ["tools.py>database.py"], "title": "The idea in one line", "text": "The LLM decides WHAT to do. The tools decide IF it is allowed. The database only does what the tools ask.", "code": {"file": "tools.py", "first": 8, "lines": ["The LLM reads each tool's docstring to decide when to use it.", "runtime.context[\"customer_id\"] is the logged-in customer. The LLM cannot change it."], "marks": [0, 1]}}]}];
+
+// where each file sits on the map: x, y, width, height, colour, one-line description
+const BOXES = {
+  "app.py":            [10, 30, 190, 90,  "#0f766e", "the UI: chat + staff"],
+  "evals.py":          [10, 175, 190, 75, "#be123c", "scores v1 vs v2"],
+  "golden_dataset.py": [10, 280, 190, 70, "#be123c", "the test cases"],
+  "prompts.py":        [270, 0, 190, 70,  "#6d28d9", "v1 and v2 prompt text"],
+  "agent.py":          [270, 120, 190, 95, "#f26b1d", "builds the agent"],
+  "llm":               [270, 270, 190, 80, "#6d28d9", "Groq: gpt-oss-120b (outside)"],
+  "tools.py":          [520, 120, 170, 95, "#2563eb", "4 tools + guardrails"],
+  "database.py":       [740, 0, 160, 75,  "#15803d", "all the SQL"],
+  "shopeasy.db":       [740, 95, 160, 55, "#15803d", "the SQLite file"],
+  "retrieval.py":      [740, 185, 160, 75, "#b45309", "hybrid RAG"],
+  "knowledge/":        [740, 280, 160, 60, "#b45309", "handbook + catalog"],
+};
+const LABEL = { llm: "🧠 LLM" };
+const EDGES = ["app.py>agent.py", "app.py>database.py", "evals.py>agent.py", "evals.py>golden_dataset.py", "evals.py>database.py",
+  "agent.py>prompts.py", "agent.py>tools.py", "agent.py>llm", "tools.py>database.py", "tools.py>retrieval.py",
+  "database.py>shopeasy.db", "retrieval.py>knowledge/"];
+
+const NS = "http://www.w3.org/2000/svg";
+const $ = id => document.getElementById(id);
+const el = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+
+// draw the boxes
+for (const [name, [x, y, w, h, c, sub]] of Object.entries(BOXES)) {
+  const g = el("g", { class: "box" + (name === "llm" ? " outside" : ""), id: "box-" + name });
+  g.style.setProperty("--c", c);
+  g.style.setProperty("--tint", c + "18");
+  g.appendChild(el("rect", { x, y, width: w, height: h, rx: 14 }));
+  const t1 = el("text", { x: x + w / 2, y: y + h / 2 - 3, "text-anchor": "middle", class: "name" }); t1.textContent = LABEL[name] || name;
+  const t2 = el("text", { x: x + w / 2, y: y + h / 2 + 19, "text-anchor": "middle", class: "sub" }); t2.textContent = sub;
+  g.append(t1, t2);
+  $("boxes").appendChild(g);
+}
+
+// draw the arrows: from the side of box a that faces box b
+function side(a, b) {
+  const [ax, ay, aw, ah] = BOXES[a], [bx, by, bw, bh] = BOXES[b];
+  if (bx >= ax + aw) return [[ax + aw, ay + ah / 2], [bx, by + bh / 2]];
+  if (bx + bw <= ax) return [[ax, ay + ah / 2], [bx + bw, by + bh / 2]];
+  if (by >= ay + ah) return [[ax + aw / 2, ay + ah], [bx + bw / 2, by]];
+  return [[ax + aw / 2, ay], [bx + bw / 2, by + bh]];
+}
+for (const e of EDGES) {
+  const [a, b] = e.split(">");
+  const [[x1, y1], [x2, y2]] = side(a, b);
+  $("edges").appendChild(el("path", { d: `M${x1},${y1} L${x2},${y2}`, class: "edge", id: "edge-" + e }));
+}
+
+// simple Python colouring for the code panel
+function colour(line) {
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const hash = line.search(/#(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+  let code = hash >= 0 ? line.slice(0, hash) : line, comment = hash >= 0 ? line.slice(hash) : "";
+  code = esc(code)
+    .replace(/("""[^"]*"""|"[^"]*"|'[^']*')/g, '<span class="str">$1</span>')
+    .replace(/\b(def|return|import|from|if|elif|else|for|in|with|as|not|None|True|False)\b(?![^<]*<\/span>)/g, '<span class="kw">$1</span>');
+  return code + (comment ? `<span class="com">${esc(comment)}</span>` : "");
+}
+
+let flow = null, index = -1, timer = null;
+
+function show(n) {
+  index = n;
+  const step = flow.steps[n];
+  document.querySelectorAll(".box").forEach(b => b.classList.remove("on"));
+  document.querySelectorAll(".edge").forEach(e => e.classList.remove("on"));
+  step.on.forEach(f => $("box-" + f).classList.add("on"));
+  step.edges.forEach(e => $("edge-" + e).classList.add("on"));
+
+  $("num").textContent = n + 1;
+  $("title").textContent = step.title;
+  $("text").textContent = step.text;
+  $("files").textContent = "Files: " + step.on.filter(f => f.endsWith(".py")).join(" → ");
+  $("counter").textContent = `Step ${n + 1} / ${flow.steps.length}`;
+  $("back").disabled = n === 0;
+  $("next").disabled = n === flow.steps.length - 1;
+
+  const c = step.code;
+  $("cfile").textContent = c.file;
+  $("clines").textContent = `lines ${c.first}–${c.first + c.lines.length - 1}`;
+  $("code").innerHTML = c.lines.map((line, i) =>
+    `<div class="ln${c.marks.includes(i) ? " mark" : ""}"><span class="no">${c.first + i}</span><span>${colour(line) || " "}</span></div>`).join("");
+}
+
+function stop() { clearInterval(timer); timer = null; $("play").textContent = "▶ Play"; }
+function next() { if (index < flow.steps.length - 1) show(index + 1); else stop(); }
+
+function choose(key) {
+  stop();
+  flow = FLOWS.find(f => f.key === key);
+  document.querySelectorAll(".picker button").forEach(b => b.classList.toggle("on", b.dataset.key === key));
+  $("command").textContent = "▶ " + flow.command;
+  show(0);
+}
+
+FLOWS.forEach(f => {
+  const b = document.createElement("button");
+  b.textContent = f.title; b.dataset.key = f.key; b.onclick = () => choose(f.key);
+  $("picker").insertBefore(b, $("command"));
+});
+$("next").onclick = () => { stop(); next(); };
+$("back").onclick = () => { stop(); if (index > 0) show(index - 1); };
+$("play").onclick = () => {
+  if (timer) return stop();
+  if (index === flow.steps.length - 1) index = -1;
+  $("play").textContent = "❚❚ Pause"; next(); timer = setInterval(next, 6000);
+};
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); stop(); next(); }
+  if (e.key === "ArrowLeft") { stop(); if (index > 0) show(index - 1); }
+  const k = "012345".indexOf(e.key); if (k >= 0 && FLOWS[k]) choose(FLOWS[k].key);
+});
+
+choose(FLOWS[1].key);
+</script>
+</body>
+</html>
